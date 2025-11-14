@@ -29,7 +29,7 @@ export class UserService {
   constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
 
   /**
-   * CREATE - Add a new user
+   * CREATE - Add a new user (invalidates Redis cache)
    */
   async create(createUserDto: CreateUserDto): Promise<User> {
     const newUser: User = {
@@ -44,65 +44,65 @@ export class UserService {
 
     this.users.push(newUser);
 
-    // Invalidate cache since we added a new user
+    // Invalidate Redis cache since we added a new user
     await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
-    console.log('Cache invalidated: users list updated');
+    console.log('Redis cache invalidated: users list updated');
 
     return newUser;
   }
 
   /**
-   * READ - Get all users (with caching)
+   * READ - Get all users (with Redis caching)
    */
   async findAll(): Promise<User[]> {
-    // Check cache first
+    // Check Redis cache first
     const cached = await this.cacheManager.get<User[]>(this.CACHE_KEY_ALL_USERS);
     
     if (cached) {
-      console.log('Cache HIT: Returning cached users list');
+      console.log('Redis Cache HIT: Returning cached users list');
       return cached;
     }
 
     // Cache miss - fetch from "database"
-    console.log('Cache MISS: Fetching users from database');
+    console.log('Redis Cache MISS: Fetching users from database');
     const users = this.users;
 
-    // Store in cache for 5 minutes (300000 ms)
-    await this.cacheManager.set(this.CACHE_KEY_ALL_USERS, users, 300000);
+    // Store in Redis cache for 5 minutes (300 seconds - Redis uses seconds)
+    await this.cacheManager.set(this.CACHE_KEY_ALL_USERS, users, 300);
     
     return users;
   }
 
   /**
-   * READ - Get a single user by ID (with caching)
+   * READ - Get a single user by ID (with Redis caching)
    */
   async findOne(id: number): Promise<User> {
     const cacheKey = this.CACHE_KEY_USER(id);
     
-    // Check cache first
+    // Check Redis cache first
     const cached = await this.cacheManager.get<User>(cacheKey);
     
     if (cached) {
-      console.log(`Cache HIT: Returning cached user ${id}`);
+      console.log(`Redis Cache HIT: Returning cached user ${id}`);
       return cached;
     }
 
     // Cache miss - fetch from "database"
-    console.log(`Cache MISS: Fetching user ${id} from database`);
+    console.log(`Redis Cache MISS: Fetching user ${id} from database`);
     const user = this.users.find((u) => u.id === id);
     
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    // Store in cache for 5 minutes (300000 ms)
-    await this.cacheManager.set(cacheKey, user, 300000);
+    // Store in Redis cache for 5 minutes (300 seconds - Redis uses seconds)
+    await this.cacheManager.set(cacheKey, user, 300);
     
     return user;
   }
 
   /**
-   * UPDATE - Update a user by ID
+   * UPDATE - Update a user by ID (invalidates Redis cache)
    */
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
     const userIndex = this.users.findIndex((u) => u.id === id);
@@ -121,16 +121,16 @@ export class UserService {
 
     this.users[userIndex] = updatedUser;
 
-    // Invalidate cache for this specific user and the users list
+    // Invalidate Redis cache for this specific user and the users list
     await this.cacheManager.del(this.CACHE_KEY_USER(id));
     await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
-    console.log(`Cache invalidated: user ${id} and users list updated`);
+    console.log(`Redis cache invalidated: user ${id} and users list updated`);
 
     return updatedUser;
   }
 
   /**
-   * DELETE - Remove a user by ID
+   * DELETE - Remove a user by ID (invalidates Redis cache)
    */
   async remove(id: number): Promise<{ message: string; deletedUser: User }> {
     const userIndex = this.users.findIndex((u) => u.id === id);
@@ -142,10 +142,10 @@ export class UserService {
     const deletedUser = this.users[userIndex];
     this.users.splice(userIndex, 1);
 
-    // Invalidate cache for this specific user and the users list
+    // Invalidate Redis cache for this specific user and the users list
     await this.cacheManager.del(this.CACHE_KEY_USER(id));
     await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
-    console.log(`Cache invalidated: user ${id} deleted and users list updated`);
+    console.log(`Redis cache invalidated: user ${id} deleted and users list updated`);
     
     return {
       message: `User with ID ${id} has been deleted`,
