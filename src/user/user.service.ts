@@ -4,6 +4,7 @@ import type { Cache } from 'cache-manager';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { DUMMY_USERS } from './users.data';
+import { listRedisKeys } from '../app.module';
 
 export interface User {
   id: number;
@@ -67,8 +68,26 @@ export class UserService {
     console.log('Redis Cache MISS: Fetching users from database');
     const users = this.users;
 
-    // Store in Redis cache for 5 minutes (300 seconds - Redis uses seconds)
-    await this.cacheManager.set(this.CACHE_KEY_ALL_USERS, users, 300);
+    // Store in Redis cache for 5 minutes (300000 ms - cache-manager v7 uses milliseconds)
+    await this.cacheManager.set(this.CACHE_KEY_ALL_USERS, users, 300000);
+    console.log(`Redis key stored: ${this.CACHE_KEY_ALL_USERS}`);
+    
+    // Debug: Try to verify the key exists in Redis and check what keys are actually in Redis
+    try {
+      const verifyKey = await this.cacheManager.get(this.CACHE_KEY_ALL_USERS);
+      console.log(`Verification: Key ${this.CACHE_KEY_ALL_USERS} exists: ${verifyKey ? 'YES' : 'NO'}`);
+      
+      // List all keys in Redis using the store instance
+      const allKeys = await listRedisKeys();
+      console.log(`All Redis keys:`, allKeys);
+      console.log(`Total keys in Redis: ${allKeys.length}`);
+      
+      // Filter keys that match our patterns
+      const userKeys = allKeys.filter((key: string) => key.includes('user'));
+      console.log(`Keys containing 'user':`, userKeys);
+    } catch (error) {
+      console.error('Error verifying key or listing keys:', error);
+    }
     
     return users;
   }
@@ -95,8 +114,9 @@ export class UserService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    // Store in Redis cache for 5 minutes (300 seconds - Redis uses seconds)
-    await this.cacheManager.set(cacheKey, user, 300);
+    // Store in Redis cache for 5 minutes (300000 ms - cache-manager v7 uses milliseconds)
+    await this.cacheManager.set(cacheKey, user, 300000);
+    console.log(`Redis key stored: ${cacheKey}`);
     
     return user;
   }
