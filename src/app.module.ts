@@ -6,15 +6,13 @@ import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
-
     CacheModule.register({
       ttl: 5000,
       max: 10,
+      isGlobal: true, // Make CacheModule available globally
     }),
-
     UserModule,
-
-    ],
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { DUMMY_USERS } from './users.data';
@@ -20,10 +22,16 @@ export class UserService {
 
   private nextId = 9; // For generating new IDs
 
+  // Cache keys
+  private readonly CACHE_KEY_ALL_USERS = 'users:all';
+  private readonly CACHE_KEY_USER = (id: number) => `user:${id}`;
+
+  constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
+
   /**
    * CREATE - Add a new user
    */
-  create(createUserDto: CreateUserDto): User {
+  async create(createUserDto: CreateUserDto): Promise<User> {
     const newUser: User = {
       id: this.nextId++,
       name: createUserDto.name,
@@ -35,25 +43,60 @@ export class UserService {
     };
 
     this.users.push(newUser);
+
+    // Invalidate cache since we added a new user
+    await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
+    console.log('Cache invalidated: users list updated');
+
     return newUser;
   }
 
   /**
-   * READ - Get all users
+   * READ - Get all users (with caching)
    */
-  findAll(): User[] {
-    return this.users;
+  async findAll(): Promise<User[]> {
+    // Check cache first
+    const cached = await this.cacheManager.get<User[]>(this.CACHE_KEY_ALL_USERS);
+    
+    if (cached) {
+      console.log('Cache HIT: Returning cached users list');
+      return cached;
+    }
+
+    // Cache miss - fetch from "database"
+    console.log('Cache MISS: Fetching users from database');
+    const users = this.users;
+
+    // Store in cache for 5 minutes (300000 ms)
+    await this.cacheManager.set(this.CACHE_KEY_ALL_USERS, users, 300000);
+    
+    return users;
   }
 
   /**
-   * READ - Get a single user by ID
+   * READ - Get a single user by ID (with caching)
    */
-  findOne(id: number): User {
+  async findOne(id: number): Promise<User> {
+    const cacheKey = this.CACHE_KEY_USER(id);
+    
+    // Check cache first
+    const cached = await this.cacheManager.get<User>(cacheKey);
+    
+    if (cached) {
+      console.log(`Cache HIT: Returning cached user ${id}`);
+      return cached;
+    }
+
+    // Cache miss - fetch from "database"
+    console.log(`Cache MISS: Fetching user ${id} from database`);
     const user = this.users.find((u) => u.id === id);
     
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+
+    // Store in cache for 5 minutes (300000 ms)
+    await this.cacheManager.set(cacheKey, user, 300000);
     
     return user;
   }
@@ -61,7 +104,7 @@ export class UserService {
   /**
    * UPDATE - Update a user by ID
    */
-  update(id: number, updateUserDto: UpdateUserDto): User {
+  async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
     const userIndex = this.users.findIndex((u) => u.id === id);
     
     if (userIndex === -1) {
@@ -77,13 +120,19 @@ export class UserService {
     };
 
     this.users[userIndex] = updatedUser;
+
+    // Invalidate cache for this specific user and the users list
+    await this.cacheManager.del(this.CACHE_KEY_USER(id));
+    await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
+    console.log(`Cache invalidated: user ${id} and users list updated`);
+
     return updatedUser;
   }
 
   /**
    * DELETE - Remove a user by ID
    */
-  remove(id: number): { message: string; deletedUser: User } {
+  async remove(id: number): Promise<{ message: string; deletedUser: User }> {
     const userIndex = this.users.findIndex((u) => u.id === id);
     
     if (userIndex === -1) {
@@ -92,6 +141,11 @@ export class UserService {
 
     const deletedUser = this.users[userIndex];
     this.users.splice(userIndex, 1);
+
+    // Invalidate cache for this specific user and the users list
+    await this.cacheManager.del(this.CACHE_KEY_USER(id));
+    await this.cacheManager.del(this.CACHE_KEY_ALL_USERS);
+    console.log(`Cache invalidated: user ${id} deleted and users list updated`);
     
     return {
       message: `User with ID ${id} has been deleted`,
